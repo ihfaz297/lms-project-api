@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
@@ -6,7 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
-import { mockCourses, mockCertificates, mockTransactions } from '@/lib/mockData';
+import { coursesAPI, instructorAPI, bankAPI, authAPI } from '@/lib/api';
+import type { Course, Certificate, Transaction } from '@/lib/api';
 import { 
   BookOpen, Award, Wallet, TrendingUp, 
   PlayCircle, Plus, DollarSign, AlertCircle 
@@ -14,6 +16,63 @@ import {
 
 export default function Dashboard() {
   const { user, isAuthenticated, isLoading } = useAuth();
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [certificates, setCertificates] = useState<Certificate[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [balance, setBalance] = useState<number | null>(null);
+  const [earnings, setEarnings] = useState<{ total: number; pending: number } | null>(null);
+  const [dataLoading, setDataLoading] = useState(true);
+
+  const isInstructor = user?.role === 'instructor';
+
+  useEffect(() => {
+    if (!isAuthenticated || isLoading) return;
+
+    const fetchData = async () => {
+      setDataLoading(true);
+      try {
+        const promises: Promise<void>[] = [];
+
+        // Fetch courses
+        if (isInstructor) {
+          promises.push(
+            instructorAPI.getCourses().then(data => setCourses(data)).catch(() => {})
+          );
+          promises.push(
+            instructorAPI.getEarnings().then(data => {
+              setEarnings({ total: data.total, pending: data.pending });
+              setTransactions(data.transactions);
+            }).catch(() => {})
+          );
+        } else {
+          promises.push(
+            coursesAPI.getEnrolled().then(data => setCourses(data)).catch(() => {})
+          );
+          promises.push(
+            bankAPI.getTransactions().then(data => setTransactions(data)).catch(() => {})
+          );
+        }
+
+        // Fetch certificates
+        promises.push(
+          authAPI.getCertificates().then(data => setCertificates(data)).catch(() => {})
+        );
+
+        // Fetch bank balance
+        if (user?.hasBankSetup) {
+          promises.push(
+            bankAPI.getBalance().then(data => setBalance(data.balance)).catch(() => {})
+          );
+        }
+
+        await Promise.all(promises);
+      } finally {
+        setDataLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [isAuthenticated, isLoading, isInstructor, user?.hasBankSetup]);
 
   if (isLoading) {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
@@ -23,9 +82,9 @@ export default function Dashboard() {
     return <Navigate to="/login" replace />;
   }
 
-  const isInstructor = user?.role === 'instructor';
-  const enrolledCourses = mockCourses.filter((c) => c.enrolled);
-  const instructorCourses = mockCourses.filter((c) => c.instructorId === 'inst1'); // Mock
+  const avgProgress = courses.length > 0 && !isInstructor
+    ? Math.round(courses.reduce((sum, c) => sum + (c.progress || 0), 0) / courses.length)
+    : 0;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -73,7 +132,7 @@ export default function Dashboard() {
                       {isInstructor ? 'My Courses' : 'Enrolled Courses'}
                     </p>
                     <p className="text-2xl font-bold">
-                      {isInstructor ? instructorCourses.length : enrolledCourses.length}
+                      {courses.length}
                     </p>
                   </div>
                   <BookOpen className="h-8 w-8 text-primary opacity-80" />
@@ -86,7 +145,7 @@ export default function Dashboard() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">Certificates</p>
-                    <p className="text-2xl font-bold">{mockCertificates.length}</p>
+                    <p className="text-2xl font-bold">{certificates.length}</p>
                   </div>
                   <Award className="h-8 w-8 text-secondary opacity-80" />
                 </div>
@@ -100,7 +159,9 @@ export default function Dashboard() {
                     <p className="text-sm text-muted-foreground">
                       {isInstructor ? 'Total Earnings' : 'Balance'}
                     </p>
-                    <p className="text-2xl font-bold">$0.00</p>
+                    <p className="text-2xl font-bold">
+                      ${isInstructor ? (earnings?.total ?? 0).toFixed(2) : (balance ?? 0).toFixed(2)}
+                    </p>
                   </div>
                   <Wallet className="h-8 w-8 text-green-500 opacity-80" />
                 </div>
@@ -114,7 +175,9 @@ export default function Dashboard() {
                     <p className="text-sm text-muted-foreground">
                       {isInstructor ? 'Pending' : 'Progress'}
                     </p>
-                    <p className="text-2xl font-bold">{isInstructor ? '$0.00' : '0%'}</p>
+                    <p className="text-2xl font-bold">
+                      {isInstructor ? `$${(earnings?.pending ?? 0).toFixed(2)}` : `${avgProgress}%`}
+                    </p>
                   </div>
                   <TrendingUp className="h-8 w-8 text-purple-500 opacity-80" />
                 </div>
@@ -137,9 +200,11 @@ export default function Dashboard() {
                   )}
                 </CardHeader>
                 <CardContent>
-                  {(isInstructor ? instructorCourses : enrolledCourses).length > 0 ? (
+                  {dataLoading ? (
+                    <p className="text-center py-8 text-muted-foreground">Loading...</p>
+                  ) : courses.length > 0 ? (
                     <ul className="space-y-4">
-                      {(isInstructor ? instructorCourses : enrolledCourses).map((course) => (
+                      {courses.map((course) => (
                         <li key={course.id} className="flex items-center gap-4 p-3 rounded-lg border">
                           <img
                             src={course.thumbnail || '/placeholder.svg'}
@@ -191,9 +256,9 @@ export default function Dashboard() {
                   <CardTitle>Certificates</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {mockCertificates.length > 0 ? (
+                  {certificates.length > 0 ? (
                     <ul className="space-y-2">
-                      {mockCertificates.map((cert) => (
+                      {certificates.map((cert) => (
                         <li key={cert.id} className="flex items-center gap-3 p-3 rounded-lg border">
                           <Award className="h-8 w-8 text-secondary" />
                           <div className="flex-1">
@@ -223,9 +288,9 @@ export default function Dashboard() {
                   <CardTitle className="text-lg">Recent Transactions</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {mockTransactions.length > 0 ? (
+                  {transactions.length > 0 ? (
                     <ul className="space-y-3">
-                      {mockTransactions.slice(0, 5).map((tx) => (
+                      {transactions.slice(0, 5).map((tx) => (
                         <li key={tx.id} className="flex items-center gap-3">
                           <div className={`p-2 rounded-full ${
                             tx.type === 'payment' 

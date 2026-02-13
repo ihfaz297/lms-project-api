@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import type { User } from '@/lib/api';
-import { mockUser } from '@/lib/mockData';
+import { authAPI } from '@/lib/api';
 
 interface AuthContextType {
   user: User | null;
@@ -19,47 +19,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check for existing session
-    const savedUser = localStorage.getItem('user');
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
+    // Check for existing session via token
+    const token = localStorage.getItem('auth_token');
+    if (token) {
+      authAPI.getProfile()
+        .then((profile) => {
+          setUser(profile);
+          localStorage.setItem('user', JSON.stringify(profile));
+        })
+        .catch(() => {
+          // Token expired or invalid
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('user');
+        })
+        .finally(() => setIsLoading(false));
+    } else {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   }, []);
 
   const login = async (email: string, password: string) => {
-    // TODO: Replace with actual API call
-    // const response = await authAPI.login(email, password);
-    // localStorage.setItem('auth_token', response.token);
-    // setUser(response.user);
-    
-    // Mock login for UI development
-    const mockLoggedInUser = { ...mockUser, email };
-    localStorage.setItem('user', JSON.stringify(mockLoggedInUser));
-    setUser(mockLoggedInUser);
+    const response = await authAPI.login(email, password);
+    localStorage.setItem('auth_token', response.token);
+    localStorage.setItem('user', JSON.stringify(response.user));
+    setUser(response.user);
   };
 
   const register = async (data: { name: string; email: string; password: string; role: 'learner' | 'instructor' }) => {
-    // TODO: Replace with actual API call
-    // const response = await authAPI.register(data);
-    // localStorage.setItem('auth_token', response.token);
-    // setUser(response.user);
-    
-    // Mock register for UI development
-    const newUser: User = {
-      id: Date.now().toString(),
-      name: data.name,
-      email: data.email,
-      role: data.role,
-      hasBankSetup: false,
-    };
-    localStorage.setItem('user', JSON.stringify(newUser));
-    setUser(newUser);
+    const response = await authAPI.register(data);
+    localStorage.setItem('auth_token', response.token);
+    localStorage.setItem('user', JSON.stringify(response.user));
+    setUser(response.user);
   };
 
   const logout = () => {
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('user');
+    authAPI.logout();
     setUser(null);
   };
 

@@ -4,8 +4,8 @@ const courseSchema = new mongoose.Schema({
   title: { type: String, required: true },
   description: { type: String, required: true },
   price: { type: Number, required: true },
-  instructorId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  instructorName: { type: String, required: true },
+  instructor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  instructorName: { type: String },
   thumbnail: { type: String },
   duration: { type: String }, // e.g., "8 hours"
   level: { type: String, enum: ['beginner', 'intermediate', 'advanced'], default: 'beginner' },

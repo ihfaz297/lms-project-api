@@ -1,18 +1,28 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { CourseCard } from '@/components/courses/CourseCard';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { mockCourses } from '@/lib/mockData';
+import { coursesAPI } from '@/lib/api';
+import type { Course } from '@/lib/api';
 import { Search } from 'lucide-react';
 
 export default function Courses() {
   const [search, setSearch] = useState('');
   const [levelFilter, setLevelFilter] = useState<string | null>(null);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const filteredCourses = mockCourses.filter((course) => {
+  useEffect(() => {
+    coursesAPI.getAll()
+      .then(data => setCourses(data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filteredCourses = courses.filter((course) => {
     const matchesSearch = course.title.toLowerCase().includes(search.toLowerCase()) ||
       course.description.toLowerCase().includes(search.toLowerCase());
     const matchesLevel = !levelFilter || course.level === levelFilter;

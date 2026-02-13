@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jwt-simple');
 const User = require('../models/User');
+const Certificate = require('../models/Certificate');
 const { JWT_SECRET } = require('../middleware/auth');
 
 // ===========================================
@@ -45,7 +46,7 @@ router.post('/register', async (req, res) => {
 
     // 5. Return token and user data
     
-    res.status(201).json({ token, user: { id: newUser._id, name: newUser.name, email: newUser.email, role: newUser.role } });
+    res.status(201).json({ token, user: { id: newUser._id, name: newUser.name, email: newUser.email, role: newUser.role, hasBankSetup: newUser.hasBankSetup || false } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -85,7 +86,7 @@ router.post('/login', async (req, res) => {
     const token = jwt.encode(payLoad, JWT_SECRET);
     // 5. Return token and user data
 
-    res.status(200).json({ token, user : {id: user._id, name: user.name, email: user.email, role: user.role} });
+    res.status(200).json({ token, user : {id: user._id, name: user.name, email: user.email, role: user.role, hasBankSetup: user.hasBankSetup || false, bankAccountNumber: user.bankAccount || null} });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -107,7 +108,20 @@ router.get('/profile', require('../middleware/auth').authenticateToken, async (r
     // 2. Find user by ID (exclude password)
     // 3. Return user data
 
-    res.status(200).json({ user:{id: user._id, name: user.name, email: user.email, role: user.role}});
+    res.status(200).json({ id: user._id, name: user.name, email: user.email, role: user.role, hasBankSetup: user.hasBankSetup || false, bankAccountNumber: user.bankAccount || null });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===========================================
+// GET /api/auth/certificates
+// Get certificates for the authenticated user
+// ===========================================
+router.get('/certificates', require('../middleware/auth').authenticateToken, async (req, res) => {
+  try {
+    const certificates = await Certificate.find({ learnerId: req.user.id }).sort({ issuedAt: -1 });
+    res.status(200).json(certificates);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

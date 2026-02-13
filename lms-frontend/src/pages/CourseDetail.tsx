@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
@@ -7,7 +7,8 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { useAuth } from '@/contexts/AuthContext';
-import { mockCourses, mockMaterials } from '@/lib/mockData';
+import { coursesAPI } from '@/lib/api';
+import type { Course, CourseMaterial } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { 
   Clock, User, BookOpen, PlayCircle, FileText, 
@@ -20,9 +21,33 @@ export default function CourseDetail() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [isEnrolling, setIsEnrolling] = useState(false);
+  const [course, setCourse] = useState<Course | null>(null);
+  const [materials, setMaterials] = useState<CourseMaterial[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const course = mockCourses.find((c) => c.id === id);
-  const materials = mockMaterials.filter((m) => m.courseId === id);
+  useEffect(() => {
+    if (!id) return;
+    setLoading(true);
+    Promise.all([
+      coursesAPI.getById(id).catch(() => null),
+      coursesAPI.getMaterials(id).catch(() => [] as CourseMaterial[]),
+    ]).then(([courseData, materialsData]) => {
+      setCourse(courseData);
+      setMaterials(materialsData);
+    }).finally(() => setLoading(false));
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <Navbar />
+        <main className="flex-1 container py-12 text-center">
+          <p className="text-muted-foreground">Loading course...</p>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
 
   if (!course) {
     return (
@@ -58,16 +83,24 @@ export default function CourseDetail() {
     }
 
     setIsEnrolling(true);
-    // TODO: Replace with actual API call
-    // await coursesAPI.enroll(course.id);
-    
-    setTimeout(() => {
+    try {
+      await coursesAPI.enroll(course.id);
       toast({
         title: 'Enrollment Successful!',
         description: `You are now enrolled in ${course.title}`,
       });
+      // Refresh course data to update enrollment state
+      const updated = await coursesAPI.getById(course.id);
+      setCourse(updated);
+    } catch (error: any) {
+      toast({
+        title: 'Enrollment Failed',
+        description: error.message || 'Something went wrong',
+        variant: 'destructive',
+      });
+    } finally {
       setIsEnrolling(false);
-    }, 1500);
+    }
   };
 
   const materialIcon = {

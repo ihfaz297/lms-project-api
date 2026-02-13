@@ -35,8 +35,23 @@ const isLearner = (req, res, next) => {
   next();
 };
 
+// Optional auth - extracts user if token present, continues without error if not
+const optionalAuth = (req, res, next) => {
+  const token = req.headers['authorization']?.split(' ')[1];
+  if (token) {
+    try {
+      const decoded = jwt.decode(token, JWT_SECRET);
+      req.user = decoded;
+    } catch (e) {
+      // Token invalid, continue without auth
+    }
+  }
+  next();
+};
+
 module.exports = {
   authenticateToken,
+  optionalAuth,
   isInstructor,
   isLearner,
   JWT_SECRET,

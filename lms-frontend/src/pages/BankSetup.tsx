@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
@@ -10,7 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { mockTransactions } from '@/lib/mockData';
+import { bankAPI } from '@/lib/api';
+import type { Transaction } from '@/lib/api';
 import { 
   Wallet, CreditCard, Shield, CheckCircle, 
   Loader2, DollarSign, ArrowUpRight, ArrowDownLeft 
@@ -25,6 +26,15 @@ export default function BankSetup() {
   const [secret, setSecret] = useState('');
   const [confirmSecret, setConfirmSecret] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [balance, setBalance] = useState<number | null>(null);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+
+  useEffect(() => {
+    if (user?.hasBankSetup) {
+      bankAPI.getBalance().then(data => setBalance(data.balance)).catch(() => {});
+      bankAPI.getTransactions().then(data => setTransactions(data)).catch(() => {});
+    }
+  }, [user?.hasBankSetup]);
 
   if (isLoading) {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
@@ -48,18 +58,23 @@ export default function BankSetup() {
 
     setIsSubmitting(true);
 
-    // TODO: Replace with actual API call
-    // await bankAPI.setupAccount({ accountNumber, secret });
-
-    setTimeout(() => {
+    try {
+      await bankAPI.setupAccount({ accountNumber, secret });
       updateUser({ hasBankSetup: true, bankAccountNumber: accountNumber });
       toast({
         title: 'Bank Account Linked!',
         description: 'Your bank account has been successfully set up.',
       });
-      setIsSubmitting(false);
       navigate('/dashboard');
-    }, 1500);
+    } catch (error: any) {
+      toast({
+        title: 'Setup Failed',
+        description: error.message || 'Could not set up bank account.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -94,8 +109,8 @@ export default function BankSetup() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-4xl font-bold text-primary mb-4">$0.00</div>
-                    <Button className="w-full">
+                    <div className="text-4xl font-bold text-primary mb-4">${balance !== null ? balance.toFixed(2) : '—'}</div>
+                    <Button className="w-full" onClick={() => bankAPI.getBalance().then(d => setBalance(d.balance)).catch(() => {})}>
                       <DollarSign className="h-4 w-4 mr-2" />
                       Check Balance
                     </Button>
@@ -214,9 +229,9 @@ export default function BankSetup() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {mockTransactions.length > 0 ? (
+                  {transactions.length > 0 ? (
                     <div className="space-y-4">
-                      {mockTransactions.map((tx) => (
+                      {transactions.map((tx) => (
                         <div key={tx.id} className="flex items-center gap-4 p-4 rounded-lg border">
                           <div className={`p-3 rounded-full ${
                             tx.type === 'payment' 

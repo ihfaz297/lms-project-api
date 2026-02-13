@@ -24,8 +24,8 @@ async function request<T>(
   const response = await fetch(`${BASE_URL}${endpoint}`, config);
   
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Request failed' }));
-    throw new Error(error.message || 'Request failed');
+    const err = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(err.error || err.message || 'Request failed');
   }
   
   return response.json();
@@ -53,6 +53,8 @@ export const authAPI = {
   },
 
   getProfile: () => request<User>('/auth/profile'),
+
+  getCertificates: () => request<Certificate[]>('/auth/certificates'),
 };
 
 // ===========================================
@@ -87,6 +89,8 @@ export const coursesAPI = {
     request<{ certificate: Certificate }>(`/courses/${courseId}/complete`, {
       method: 'POST',
     }),
+
+  getEnrolled: () => request<Course[]>('/courses/enrolled'),
 };
 
 // ===========================================
@@ -111,6 +115,8 @@ export const bankAPI = {
     request<{ status: string }>(`/bank/transactions/${transactionId}/validate`, {
       method: 'POST',
     }),
+
+  getTransactions: () => request<Transaction[]>('/bank/transactions'),
 };
 
 // ===========================================

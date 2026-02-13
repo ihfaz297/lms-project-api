@@ -1,12 +1,22 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { CourseCard } from '@/components/courses/CourseCard';
-import { mockCourses } from '@/lib/mockData';
+import { coursesAPI } from '@/lib/api';
+import type { Course } from '@/lib/api';
 import { GraduationCap, Users, Award, BookOpen, ArrowRight } from 'lucide-react';
 
 export default function Landing() {
+  const [courses, setCourses] = useState<Course[]>([]);
+
+  useEffect(() => {
+    coursesAPI.getAll()
+      .then(data => setCourses(data))
+      .catch(() => {});
+  }, []);
+
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
@@ -69,7 +79,7 @@ export default function Landing() {
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {mockCourses.slice(0, 3).map((course) => (
+            {courses.slice(0, 3).map((course) => (
               <CourseCard key={course.id} course={course} />
             ))}
           </div>
