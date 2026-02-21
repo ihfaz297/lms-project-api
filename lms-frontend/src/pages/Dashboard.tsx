@@ -1,360 +1,399 @@
-import { useState, useEffect } from 'react';
-import { Link, Navigate } from 'react-router-dom';
-import { Navbar } from '@/components/layout/Navbar';
-import { Footer } from '@/components/layout/Footer';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { Badge } from '@/components/ui/badge';
+import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { coursesAPI, instructorAPI, bankAPI, authAPI } from '@/lib/api';
-import type { Course, Certificate, Transaction } from '@/lib/api';
-import { 
-  BookOpen, Award, Wallet, TrendingUp, 
-  PlayCircle, Plus, DollarSign, AlertCircle 
+import Navbar from '@/components/layout/Navbar';
+import Footer from '@/components/layout/Footer';
+import CourseCard from '@/components/courses/CourseCard';
+import CourseCreateDialog from '@/components/courses/CourseCreateDialog';
+import MaterialUploadDialog from '@/components/courses/MaterialUploadDialog';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { toast } from 'sonner';
+import {
+  coursesAPI, bankAPI, authAPI, instructorAPI,
+  Course, Certificate, Transaction, InstructorEarnings,
+} from '@/lib/api';
+import {
+  BookOpen, Award, DollarSign, TrendingUp, Landmark,
+  Clock, CheckCircle2, ArrowDownUp, Loader2, AlertTriangle,
 } from 'lucide-react';
 
-export default function Dashboard() {
-  const { user, isAuthenticated, isLoading } = useAuth();
+// ============================================
+// Stat Card
+// ============================================
+const StatCard: React.FC<{ icon: React.ElementType; label: string; value: string | number }> = ({
+  icon: Icon, label, value,
+}) => (
+  <Card>
+    <CardContent className="flex items-center gap-4 p-4">
+      <div className="p-2 rounded-lg bg-primary/10">
+        <Icon className="h-5 w-5 text-primary" />
+      </div>
+      <div>
+        <p className="text-2xl font-bold">{value}</p>
+        <p className="text-xs text-muted-foreground">{label}</p>
+      </div>
+    </CardContent>
+  </Card>
+);
+
+// ============================================
+// Learner Dashboard
+// ============================================
+const LearnerDashboard = () => {
   const [courses, setCourses] = useState<Course[]>([]);
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [balance, setBalance] = useState<number | null>(null);
-  const [earnings, setEarnings] = useState<{ total: number; pending: number } | null>(null);
-  const [dataLoading, setDataLoading] = useState(true);
-
-  const isInstructor = user?.role === 'instructor';
+  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
 
   useEffect(() => {
-    if (!isAuthenticated || isLoading) return;
-
     const fetchData = async () => {
-      setDataLoading(true);
       try {
-        const promises: Promise<void>[] = [];
+        const [coursesData, certsData, txData] = await Promise.all([
+          coursesAPI.getEnrolled(),
+          authAPI.getCertificates(),
+          bankAPI.getTransactions(),
+        ]);
+        setCourses(coursesData);
+        setCertificates(certsData);
+        setTransactions(txData);
 
-        // Fetch courses
-        if (isInstructor) {
-          promises.push(
-            instructorAPI.getCourses().then(data => setCourses(data)).catch(() => {})
-          );
-          promises.push(
-            instructorAPI.getEarnings().then(data => {
-              setEarnings({ total: data.total, pending: data.pending });
-              setTransactions(data.transactions);
-            }).catch(() => {})
-          );
-        } else {
-          promises.push(
-            coursesAPI.getEnrolled().then(data => setCourses(data)).catch(() => {})
-          );
-          promises.push(
-            bankAPI.getTransactions().then(data => setTransactions(data)).catch(() => {})
-          );
-        }
-
-        // Fetch certificates
-        promises.push(
-          authAPI.getCertificates().then(data => setCertificates(data)).catch(() => {})
-        );
-
-        // Fetch bank balance
         if (user?.hasBankSetup) {
-          promises.push(
-            bankAPI.getBalance().then(data => setBalance(data.balance)).catch(() => {})
-          );
+          try {
+            const bankData = await bankAPI.getBalance();
+            setBalance(bankData.balance);
+          } catch { /* ignore */ }
         }
-
-        await Promise.all(promises);
+      } catch {
+        toast.error('Failed to load dashboard data');
       } finally {
-        setDataLoading(false);
+        setLoading(false);
       }
     };
-
     fetchData();
-  }, [isAuthenticated, isLoading, isInstructor, user?.hasBankSetup]);
+  }, [user?.hasBankSetup]);
 
-  if (isLoading) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-24 rounded-lg" />)}
+        </div>
+        <Skeleton className="h-64 rounded-lg" />
+      </div>
+    );
   }
 
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-
-  const avgProgress = courses.length > 0 && !isInstructor
-    ? Math.round(courses.reduce((sum, c) => sum + (c.progress || 0), 0) / courses.length)
+  const avgProgress = courses.length > 0
+    ? Math.round(courses.reduce((acc, c) => acc + (c.progress || 0), 0) / courses.length)
     : 0;
+
+  return (
+    <div className="space-y-8">
+      {/* Bank setup reminder */}
+      {!user?.hasBankSetup && (
+        <div className="flex items-center gap-3 p-4 rounded-lg bg-amber-50 border border-amber-200">
+          <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
+          <div className="flex-1">
+            <p className="font-medium text-amber-800 text-sm">Bank account not set up</p>
+            <p className="text-xs text-amber-600">You need a bank account to enroll in courses.</p>
+          </div>
+          <Button size="sm" variant="outline" asChild>
+            <Link to="/bank">Set Up Now</Link>
+          </Button>
+        </div>
+      )}
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard icon={BookOpen} label="Enrolled Courses" value={courses.length} />
+        <StatCard icon={Award} label="Certificates" value={certificates.length} />
+        <StatCard icon={TrendingUp} label="Avg. Progress" value={`${avgProgress}%`} />
+        <StatCard icon={DollarSign} label="Balance" value={balance !== null ? `$${balance.toFixed(2)}` : 'N/A'} />
+      </div>
+
+      {/* Enrolled Courses */}
+      <div>
+        <h2 className="text-xl font-semibold mb-4">My Courses</h2>
+        {courses.length === 0 ? (
+          <Card><CardContent className="p-6 text-center text-muted-foreground">
+            You haven't enrolled in any courses yet.{' '}
+            <Link to="/courses" className="text-primary hover:underline">Browse courses</Link>
+          </CardContent></Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {courses.map(course => <CourseCard key={course.id} course={course} />)}
+          </div>
+        )}
+      </div>
+
+      {/* Certificates */}
+      {certificates.length > 0 && (
+        <div>
+          <h2 className="text-xl font-semibold mb-4">Certificates</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {certificates.map(cert => (
+              <Card key={cert.id}>
+                <CardContent className="flex items-center gap-4 p-4">
+                  <Award className="h-10 w-10 text-primary shrink-0" />
+                  <div className="min-w-0">
+                    <p className="font-semibold truncate">{cert.courseName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Issued on {new Date(cert.issuedAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Transactions */}
+      {transactions.length > 0 && (
+        <div>
+          <h2 className="text-xl font-semibold mb-4">Transaction History</h2>
+          <Card>
+            <CardContent className="p-0">
+              <div className="divide-y">
+                {transactions.slice(0, 10).map(tx => (
+                  <div key={tx.id} className="flex items-center justify-between p-4">
+                    <div className="flex items-center gap-3">
+                      <ArrowDownUp className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="text-sm font-medium">{tx.courseName || 'Course Payment'}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(tx.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold">-${tx.amount.toFixed(2)}</p>
+                      <Badge variant="outline" className="text-xs capitalize">{tx.status}</Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================
+// Instructor Dashboard
+// ============================================
+const InstructorDashboard = () => {
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [earnings, setEarnings] = useState<InstructorEarnings | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
+  const { user } = useAuth();
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [coursesData, earningsData] = await Promise.all([
+        instructorAPI.getCourses(),
+        instructorAPI.getEarnings(),
+      ]);
+      setCourses(coursesData);
+      setEarnings(earningsData);
+    } catch {
+      toast.error('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleWithdraw = async (transactionId: string) => {
+    setWithdrawingId(transactionId);
+    try {
+      const result = await instructorAPI.withdrawEarnings(transactionId);
+      toast.success(result.message);
+      fetchData(); // Refresh data
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Withdrawal failed');
+    } finally {
+      setWithdrawingId(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-24 rounded-lg" />)}
+        </div>
+        <Skeleton className="h-64 rounded-lg" />
+      </div>
+    );
+  }
+
+  const pendingTx = earnings?.transactions.filter(t => t.status === 'pending') || [];
+
+  return (
+    <div className="space-y-8">
+      {/* Bank setup reminder */}
+      {!user?.hasBankSetup && (
+        <div className="flex items-center gap-3 p-4 rounded-lg bg-amber-50 border border-amber-200">
+          <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
+          <div className="flex-1">
+            <p className="font-medium text-amber-800 text-sm">Bank account not set up</p>
+            <p className="text-xs text-amber-600">Set up your bank to receive course bonuses and withdrawals.</p>
+          </div>
+          <Button size="sm" variant="outline" asChild>
+            <Link to="/bank">Set Up Now</Link>
+          </Button>
+        </div>
+      )}
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard icon={BookOpen} label="My Courses" value={courses.length} />
+        <StatCard icon={DollarSign} label="Total Earnings" value={`$${(earnings?.total || 0).toFixed(2)}`} />
+        <StatCard icon={Clock} label="Pending" value={`$${(earnings?.pending || 0).toFixed(2)}`} />
+        <StatCard icon={Landmark} label="Bank Balance" value={earnings?.bankBalance !== null ? `$${(earnings?.bankBalance || 0).toFixed(2)}` : 'N/A'} />
+      </div>
+
+      {/* Create Course + My Courses */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold">My Courses</h2>
+          <CourseCreateDialog onCourseCreated={fetchData} />
+        </div>
+        {courses.length === 0 ? (
+          <Card><CardContent className="p-6 text-center text-muted-foreground">
+            You haven't created any courses yet. Click "Create Course" to get started.
+          </CardContent></Card>
+        ) : (
+          <div className="space-y-4">
+            {courses.map(course => (
+              <Card key={course.id}>
+                <CardContent className="flex items-center justify-between p-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <BookOpen className="h-5 w-5 text-primary shrink-0" />
+                    <div className="min-w-0">
+                      <Link to={`/courses/${course.id}`} className="font-medium hover:text-primary transition-colors truncate block">
+                        {course.title}
+                      </Link>
+                      <p className="text-xs text-muted-foreground">
+                        ${course.price.toFixed(2)} • {course.level} • {course.duration}
+                      </p>
+                    </div>
+                  </div>
+                  <MaterialUploadDialog courseId={course.id} onMaterialAdded={fetchData} />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Pending Transactions (G2) */}
+      {pendingTx.length > 0 && (
+        <div>
+          <h2 className="text-xl font-semibold mb-4">
+            Pending Transactions
+            <Badge variant="secondary" className="ml-2">{pendingTx.length}</Badge>
+          </h2>
+          <Card>
+            <CardContent className="p-0">
+              <div className="divide-y">
+                {pendingTx.map(tx => (
+                  <div key={tx.id} className="flex items-center justify-between p-4">
+                    <div>
+                      <p className="text-sm font-medium">{tx.courseName || 'Course Payment'}</p>
+                      <p className="text-xs text-muted-foreground">
+                        ${tx.amount.toFixed(2)} • {new Date(tx.createdAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => handleWithdraw(tx.id)}
+                      disabled={withdrawingId === tx.id}
+                    >
+                      {withdrawingId === tx.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <>
+                          <CheckCircle2 className="h-4 w-4 mr-1" />
+                          Withdraw
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* All Transactions */}
+      {earnings && earnings.transactions.length > 0 && (
+        <div>
+          <h2 className="text-xl font-semibold mb-4">All Transactions</h2>
+          <Card>
+            <CardContent className="p-0">
+              <div className="divide-y">
+                {earnings.transactions.map(tx => (
+                  <div key={tx.id} className="flex items-center justify-between p-4">
+                    <div className="flex items-center gap-3">
+                      <ArrowDownUp className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="text-sm font-medium">{tx.courseName || 'Transaction'}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(tx.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-green-600">+${tx.amount.toFixed(2)}</p>
+                      <Badge variant="outline" className="text-xs capitalize">{tx.status}</Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================
+// Dashboard Page (Role-Aware)
+// ============================================
+const Dashboard = () => {
+  const { user } = useAuth();
 
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
-      
-      <main className="flex-1 py-8">
-        <div className="container">
-          {/* Header */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold mb-2">
-              Welcome back, {user?.name}!
-            </h1>
-            <p className="text-muted-foreground">
-              {isInstructor 
-                ? 'Manage your courses and track your earnings' 
-                : 'Continue your learning journey'}
-            </p>
-          </div>
-
-          {/* Bank Setup Alert */}
-          {!user?.hasBankSetup && (
-            <Card className="mb-6 border-secondary bg-secondary/5">
-              <CardContent className="flex items-center gap-4 p-4">
-                <AlertCircle className="h-6 w-6 text-secondary" />
-                <div className="flex-1">
-                  <p className="font-medium">Set up your bank account</p>
-                  <p className="text-sm text-muted-foreground">
-                    You need to set up your bank information before you can enroll in courses.
-                  </p>
-                </div>
-                <Button asChild>
-                  <Link to="/bank">Set Up Now</Link>
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Stats Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">
-                      {isInstructor ? 'My Courses' : 'Enrolled Courses'}
-                    </p>
-                    <p className="text-2xl font-bold">
-                      {courses.length}
-                    </p>
-                  </div>
-                  <BookOpen className="h-8 w-8 text-primary opacity-80" />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Certificates</p>
-                    <p className="text-2xl font-bold">{certificates.length}</p>
-                  </div>
-                  <Award className="h-8 w-8 text-secondary opacity-80" />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">
-                      {isInstructor ? 'Total Earnings' : 'Balance'}
-                    </p>
-                    <p className="text-2xl font-bold">
-                      ${isInstructor ? (earnings?.total ?? 0).toFixed(2) : (balance ?? 0).toFixed(2)}
-                    </p>
-                  </div>
-                  <Wallet className="h-8 w-8 text-green-500 opacity-80" />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">
-                      {isInstructor ? 'Pending' : 'Progress'}
-                    </p>
-                    <p className="text-2xl font-bold">
-                      {isInstructor ? `$${(earnings?.pending ?? 0).toFixed(2)}` : `${avgProgress}%`}
-                    </p>
-                  </div>
-                  <TrendingUp className="h-8 w-8 text-purple-500 opacity-80" />
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="grid lg:grid-cols-3 gap-8">
-            {/* Main Content */}
-            <div className="lg:col-span-2 space-y-6">
-              {/* Courses Section */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>{isInstructor ? 'My Courses' : 'My Learning'}</CardTitle>
-                  {isInstructor && (
-                    <Button size="sm">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Create Course
-                    </Button>
-                  )}
-                </CardHeader>
-                <CardContent>
-                  {dataLoading ? (
-                    <p className="text-center py-8 text-muted-foreground">Loading...</p>
-                  ) : courses.length > 0 ? (
-                    <ul className="space-y-4">
-                      {courses.map((course) => (
-                        <li key={course.id} className="flex items-center gap-4 p-3 rounded-lg border">
-                          <img
-                            src={course.thumbnail || '/placeholder.svg'}
-                            alt={course.title}
-                            className="w-16 h-12 object-cover rounded"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-medium truncate">{course.title}</h4>
-                            {!isInstructor && course.progress !== undefined && (
-                              <div className="flex items-center gap-2 mt-1">
-                                <Progress value={course.progress} className="h-2 flex-1" />
-                                <span className="text-xs text-muted-foreground">
-                                  {course.progress}%
-                                </span>
-                              </div>
-                            )}
-                            {isInstructor && (
-                              <p className="text-sm text-muted-foreground">
-                                ${course.price} • {course.level}
-                              </p>
-                            )}
-                          </div>
-                          <Button variant="ghost" size="sm" asChild>
-                            <Link to={`/courses/${course.id}`}>
-                              <PlayCircle className="h-4 w-4" />
-                            </Link>
-                          </Button>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div className="text-center py-8">
-                      <p className="text-muted-foreground mb-4">
-                        {isInstructor 
-                          ? "You haven't created any courses yet" 
-                          : "You haven't enrolled in any courses yet"}
-                      </p>
-                      <Button asChild>
-                        <Link to="/courses">Browse Courses</Link>
-                      </Button>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Certificates */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Certificates</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {certificates.length > 0 ? (
-                    <ul className="space-y-2">
-                      {certificates.map((cert) => (
-                        <li key={cert.id} className="flex items-center gap-3 p-3 rounded-lg border">
-                          <Award className="h-8 w-8 text-secondary" />
-                          <div className="flex-1">
-                            <p className="font-medium">{cert.courseName}</p>
-                            <p className="text-sm text-muted-foreground">
-                              Issued on {new Date(cert.issuedAt).toLocaleDateString()}
-                            </p>
-                          </div>
-                          <Button variant="outline" size="sm">View</Button>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-center py-4 text-muted-foreground">
-                      Complete a course to earn your first certificate!
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Sidebar */}
-            <div className="space-y-6">
-              {/* Recent Transactions */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Recent Transactions</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {transactions.length > 0 ? (
-                    <ul className="space-y-3">
-                      {transactions.slice(0, 5).map((tx) => (
-                        <li key={tx.id} className="flex items-center gap-3">
-                          <div className={`p-2 rounded-full ${
-                            tx.type === 'payment' 
-                              ? 'bg-red-100 text-red-600' 
-                              : 'bg-green-100 text-green-600'
-                          }`}>
-                            <DollarSign className="h-4 w-4" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{tx.courseName}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {new Date(tx.createdAt).toLocaleDateString()}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className={`text-sm font-medium ${
-                              tx.type === 'payment' ? 'text-red-600' : 'text-green-600'
-                            }`}>
-                              {tx.type === 'payment' ? '-' : '+'}${tx.amount}
-                            </p>
-                            <Badge variant="outline" className="text-xs">
-                              {tx.status}
-                            </Badge>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-center py-4 text-muted-foreground text-sm">
-                      No transactions yet
-                    </p>
-                  )}
-                  <Button variant="link" className="w-full mt-4" asChild>
-                    <Link to="/bank">View All Transactions</Link>
-                  </Button>
-                </CardContent>
-              </Card>
-
-              {/* Quick Actions */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Quick Actions</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <Button variant="outline" className="w-full justify-start" asChild>
-                    <Link to="/courses">
-                      <BookOpen className="h-4 w-4 mr-2" />
-                      Browse Courses
-                    </Link>
-                  </Button>
-                  <Button variant="outline" className="w-full justify-start" asChild>
-                    <Link to="/bank">
-                      <Wallet className="h-4 w-4 mr-2" />
-                      Manage Bank Account
-                    </Link>
-                  </Button>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
+      <div className="flex-1 container mx-auto px-4 py-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold">
+            {user?.role === 'instructor' ? 'Instructor' : 'Learner'} Dashboard
+          </h1>
+          <p className="text-muted-foreground">
+            Welcome back, {user?.name}
+          </p>
         </div>
-      </main>
 
+        {user?.role === 'instructor' ? <InstructorDashboard /> : <LearnerDashboard />}
+      </div>
       <Footer />
     </div>
   );
-}
+};
+
+export default Dashboard;

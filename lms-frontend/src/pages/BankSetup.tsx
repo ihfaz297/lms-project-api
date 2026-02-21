@@ -1,284 +1,325 @@
-import { useState, useEffect } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
-import { Navbar } from '@/components/layout/Navbar';
-import { Footer } from '@/components/layout/Footer';
+import { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import Navbar from '@/components/layout/Navbar';
+import Footer from '@/components/layout/Footer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { useAuth } from '@/contexts/AuthContext';
-import { useToast } from '@/hooks/use-toast';
-import { bankAPI } from '@/lib/api';
-import type { Transaction } from '@/lib/api';
-import { 
-  Wallet, CreditCard, Shield, CheckCircle, 
-  Loader2, DollarSign, ArrowUpRight, ArrowDownLeft 
+import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { toast } from 'sonner';
+import { bankAPI, Transaction } from '@/lib/api';
+import {
+  Landmark, Loader2, DollarSign, ArrowDownUp, CheckCircle2,
+  Wallet, ArrowRight,
 } from 'lucide-react';
 
-export default function BankSetup() {
-  const { user, isAuthenticated, isLoading, updateUser } = useAuth();
-  const navigate = useNavigate();
-  const { toast } = useToast();
-  
+const BankSetup = () => {
+  const { user, updateUser } = useAuth();
+
+  // Setup form state
   const [accountNumber, setAccountNumber] = useState('');
   const [secret, setSecret] = useState('');
   const [confirmSecret, setConfirmSecret] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [setupLoading, setSetupLoading] = useState(false);
+
+  // Bank data
   const [balance, setBalance] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [dataLoading, setDataLoading] = useState(false);
+
+  const isSetup = user?.hasBankSetup;
+
+  const fetchBankData = useCallback(async () => {
+    if (!isSetup) return;
+    setDataLoading(true);
+    try {
+      const [balanceData, txData] = await Promise.all([
+        bankAPI.getBalance(),
+        bankAPI.getTransactions(),
+      ]);
+      setBalance(balanceData.balance);
+      setTransactions(txData);
+    } catch {
+      // ignore
+    } finally {
+      setDataLoading(false);
+    }
+  }, [isSetup]);
 
   useEffect(() => {
-    if (user?.hasBankSetup) {
-      bankAPI.getBalance().then(data => setBalance(data.balance)).catch(() => {});
-      bankAPI.getTransactions().then(data => setTransactions(data)).catch(() => {});
-    }
-  }, [user?.hasBankSetup]);
-
-  if (isLoading) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
+    fetchBankData();
+  }, [fetchBankData]);
 
   const handleSetup = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!accountNumber || !secret) {
+      toast.error('Account number and secret are required');
+      return;
+    }
+    if (accountNumber.length < 10) {
+      toast.error('Account number must be at least 10 characters');
+      return;
+    }
+    if (secret.length < 6) {
+      toast.error('Secret must be at least 6 characters');
+      return;
+    }
     if (secret !== confirmSecret) {
-      toast({
-        title: 'Secrets do not match',
-        description: 'Please make sure both secret fields match.',
-        variant: 'destructive',
-      });
+      toast.error('Secrets do not match');
       return;
     }
 
-    setIsSubmitting(true);
-
+    setSetupLoading(true);
     try {
-      await bankAPI.setupAccount({ accountNumber, secret });
-      updateUser({ hasBankSetup: true, bankAccountNumber: accountNumber });
-      toast({
-        title: 'Bank Account Linked!',
-        description: 'Your bank account has been successfully set up.',
+      const result = await bankAPI.setup({ accountNumber, secret });
+      toast.success(result.message);
+      // Update auth context so hasBankSetup reflects immediately
+      updateUser({
+        hasBankSetup: true,
+        bankAccountNumber: accountNumber,
       });
-      navigate('/dashboard');
-    } catch (error: any) {
-      toast({
-        title: 'Setup Failed',
-        description: error.message || 'Could not set up bank account.',
-        variant: 'destructive',
-      });
+      // Reset form
+      setAccountNumber('');
+      setSecret('');
+      setConfirmSecret('');
+      // Fetch bank data now
+      fetchBankData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Bank setup failed');
     } finally {
-      setIsSubmitting(false);
+      setSetupLoading(false);
     }
   };
 
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
-      
-      <main className="flex-1 py-8">
-        <div className="container max-w-4xl">
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold mb-2">Bank Account</h1>
-            <p className="text-muted-foreground">
-              Manage your bank account and view transactions
-            </p>
-          </div>
+      <div className="flex-1 container mx-auto px-4 py-8 max-w-2xl">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold flex items-center gap-2">
+            <Landmark className="h-8 w-8 text-primary" />
+            Bank Account
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            Manage your bank account for course transactions
+          </p>
+        </div>
 
-          <Tabs defaultValue={user?.hasBankSetup ? 'overview' : 'setup'}>
-            <TabsList className="mb-6">
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="setup">
-                {user?.hasBankSetup ? 'Update Account' : 'Setup Account'}
-              </TabsTrigger>
-              <TabsTrigger value="transactions">Transactions</TabsTrigger>
+        {isSetup ? (
+          <Tabs defaultValue="overview">
+            <TabsList className="w-full">
+              <TabsTrigger value="overview" className="flex-1">Overview</TabsTrigger>
+              <TabsTrigger value="update" className="flex-1">Update Account</TabsTrigger>
+              <TabsTrigger value="transactions" className="flex-1">Transactions</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="overview">
-              <div className="grid md:grid-cols-2 gap-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Wallet className="h-5 w-5 text-primary" />
-                      Account Balance
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-4xl font-bold text-primary mb-4">${balance !== null ? balance.toFixed(2) : '—'}</div>
-                    <Button className="w-full" onClick={() => bankAPI.getBalance().then(d => setBalance(d.balance)).catch(() => {})}>
-                      <DollarSign className="h-4 w-4 mr-2" />
-                      Check Balance
-                    </Button>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <CreditCard className="h-5 w-5 text-primary" />
-                      Account Status
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {user?.hasBankSetup ? (
-                      <div className="space-y-4">
-                        <div className="flex items-center gap-2 text-green-600">
-                          <CheckCircle className="h-5 w-5" />
-                          <span className="font-medium">Account Linked</span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          Account ending in •••• {user.bankAccountNumber?.slice(-4) || '0000'}
+            {/* Overview */}
+            <TabsContent value="overview" className="space-y-4 mt-4">
+              {dataLoading ? (
+                <div className="space-y-4">
+                  <Skeleton className="h-24 rounded-lg" />
+                  <Skeleton className="h-16 rounded-lg" />
+                </div>
+              ) : (
+                <>
+                  <Card>
+                    <CardContent className="flex items-center gap-4 p-6">
+                      <div className="p-3 rounded-full bg-primary/10">
+                        <Wallet className="h-6 w-6 text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Current Balance</p>
+                        <p className="text-3xl font-bold flex items-center">
+                          <DollarSign className="h-6 w-6" />
+                          {balance !== null ? balance.toFixed(2) : '—'}
                         </p>
                       </div>
-                    ) : (
-                      <div className="space-y-4">
-                        <Badge variant="outline" className="text-yellow-600 border-yellow-600">
-                          Setup Required
-                        </Badge>
-                        <p className="text-sm text-muted-foreground">
-                          Link your bank account to enroll in courses and receive payments.
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="flex items-center gap-4 p-4">
+                      <CheckCircle2 className="h-5 w-5 text-green-600" />
+                      <div>
+                        <p className="text-sm font-medium">Account Connected</p>
+                        <p className="text-xs text-muted-foreground">
+                          Account: {user?.bankAccountNumber ? `****${user.bankAccountNumber.slice(-4)}` : 'Connected'}
                         </p>
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
+                    </CardContent>
+                  </Card>
+                </>
+              )}
             </TabsContent>
 
-            <TabsContent value="setup">
+            {/* Update */}
+            <TabsContent value="update" className="mt-4">
               <Card>
                 <CardHeader>
-                  <CardTitle>
-                    {user?.hasBankSetup ? 'Update Bank Account' : 'Set Up Bank Account'}
-                  </CardTitle>
+                  <CardTitle>Update Bank Account</CardTitle>
                   <CardDescription>
-                    Enter your bank account details to enable transactions on the platform.
+                    Connect a different bank account to your LearnHub profile.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <form onSubmit={handleSetup} className="space-y-6">
-                    <div className="space-y-2">
-                      <Label htmlFor="accountNumber">Account Number</Label>
-                      <Input
-                        id="accountNumber"
-                        placeholder="Enter your bank account number"
-                        value={accountNumber}
-                        onChange={(e) => setAccountNumber(e.target.value)}
-                        required
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="secret">Transaction Secret</Label>
-                      <Input
-                        id="secret"
-                        type="password"
-                        placeholder="Create a secret for transactions"
-                        value={secret}
-                        onChange={(e) => setSecret(e.target.value)}
-                        required
-                        minLength={6}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        This secret will be used to authorize transactions. Keep it safe!
-                      </p>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="confirmSecret">Confirm Secret</Label>
-                      <Input
-                        id="confirmSecret"
-                        type="password"
-                        placeholder="Confirm your transaction secret"
-                        value={confirmSecret}
-                        onChange={(e) => setConfirmSecret(e.target.value)}
-                        required
-                      />
-                    </div>
-
-                    <div className="flex items-start gap-3 p-4 bg-muted rounded-lg">
-                      <Shield className="h-5 w-5 text-primary mt-0.5" />
-                      <div className="text-sm">
-                        <p className="font-medium">Your data is secure</p>
-                        <p className="text-muted-foreground">
-                          Your bank information is encrypted and never stored in plain text.
-                        </p>
-                      </div>
-                    </div>
-
-                    <Button type="submit" className="w-full" disabled={isSubmitting}>
-                      {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      {user?.hasBankSetup ? 'Update Account' : 'Link Account'}
-                    </Button>
-                  </form>
+                  <SetupForm
+                    accountNumber={accountNumber}
+                    setAccountNumber={setAccountNumber}
+                    secret={secret}
+                    setSecret={setSecret}
+                    confirmSecret={confirmSecret}
+                    setConfirmSecret={setConfirmSecret}
+                    loading={setupLoading}
+                    onSubmit={handleSetup}
+                    buttonText="Update Account"
+                  />
                 </CardContent>
               </Card>
             </TabsContent>
 
-            <TabsContent value="transactions">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Transaction History</CardTitle>
-                  <CardDescription>
-                    View all your payment and payout transactions
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {transactions.length > 0 ? (
-                    <div className="space-y-4">
-                      {transactions.map((tx) => (
-                        <div key={tx.id} className="flex items-center gap-4 p-4 rounded-lg border">
-                          <div className={`p-3 rounded-full ${
-                            tx.type === 'payment' 
-                              ? 'bg-red-100 text-red-600' 
-                              : 'bg-green-100 text-green-600'
-                          }`}>
-                            {tx.type === 'payment' ? (
-                              <ArrowUpRight className="h-5 w-5" />
-                            ) : (
-                              <ArrowDownLeft className="h-5 w-5" />
-                            )}
-                          </div>
-                          <div className="flex-1">
-                            <p className="font-medium">{tx.courseName}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {tx.type === 'payment' ? 'Course Payment' : 'Instructor Payout'}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {new Date(tx.createdAt).toLocaleDateString()} • ID: {tx.id}
-                            </p>
+            {/* Transactions */}
+            <TabsContent value="transactions" className="mt-4">
+              {dataLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)}
+                </div>
+              ) : transactions.length === 0 ? (
+                <Card>
+                  <CardContent className="p-6 text-center text-muted-foreground">
+                    No transactions yet.
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card>
+                  <CardContent className="p-0">
+                    <div className="divide-y">
+                      {transactions.map(tx => (
+                        <div key={tx.id} className="flex items-center justify-between p-4">
+                          <div className="flex items-center gap-3">
+                            <ArrowDownUp className="h-4 w-4 text-muted-foreground" />
+                            <div>
+                              <p className="text-sm font-medium">{tx.courseName || tx.type}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {new Date(tx.createdAt).toLocaleDateString()}
+                              </p>
+                            </div>
                           </div>
                           <div className="text-right">
-                            <p className={`text-lg font-bold ${
-                              tx.type === 'payment' ? 'text-red-600' : 'text-green-600'
-                            }`}>
-                              {tx.type === 'payment' ? '-' : '+'}${tx.amount.toFixed(2)}
+                            <p className={`text-sm font-semibold ${tx.type === 'payout' ? 'text-green-600' : ''}`}>
+                              {tx.type === 'payout' ? '+' : '-'}${tx.amount.toFixed(2)}
                             </p>
-                            <Badge variant={tx.status === 'completed' ? 'default' : 'secondary'}>
-                              {tx.status}
-                            </Badge>
+                            <Badge variant="outline" className="text-xs capitalize">{tx.status}</Badge>
                           </div>
                         </div>
                       ))}
                     </div>
-                  ) : (
-                    <div className="text-center py-8">
-                      <p className="text-muted-foreground">No transactions yet</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              )}
             </TabsContent>
           </Tabs>
-        </div>
-      </main>
-
+        ) : (
+          /* First-time setup */
+          <Card>
+            <CardHeader>
+              <CardTitle>Connect Your Bank Account</CardTitle>
+              <CardDescription>
+                Connect your existing bank account to enable course purchases and receive earnings.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <SetupForm
+                accountNumber={accountNumber}
+                setAccountNumber={setAccountNumber}
+                secret={secret}
+                setSecret={setSecret}
+                confirmSecret={confirmSecret}
+                setConfirmSecret={setConfirmSecret}
+                loading={setupLoading}
+                onSubmit={handleSetup}
+                buttonText="Connect Account"
+              />
+            </CardContent>
+          </Card>
+        )}
+      </div>
       <Footer />
     </div>
   );
+};
+
+// ============================================
+// Setup Form (shared between first setup and update)
+// ============================================
+interface SetupFormProps {
+  accountNumber: string;
+  setAccountNumber: (v: string) => void;
+  secret: string;
+  setSecret: (v: string) => void;
+  confirmSecret: string;
+  setConfirmSecret: (v: string) => void;
+  loading: boolean;
+  onSubmit: (e: React.FormEvent) => void;
+  buttonText: string;
 }
+
+const SetupForm: React.FC<SetupFormProps> = ({
+  accountNumber, setAccountNumber,
+  secret, setSecret,
+  confirmSecret, setConfirmSecret,
+  loading, onSubmit, buttonText,
+}) => (
+  <form onSubmit={onSubmit} className="space-y-4">
+    <div className="space-y-2">
+      <Label htmlFor="accountNumber">Bank Account Number</Label>
+      <Input
+        id="accountNumber"
+        value={accountNumber}
+        onChange={(e) => setAccountNumber(e.target.value)}
+        placeholder="Enter your bank account number"
+        minLength={10}
+        required
+      />
+      <p className="text-xs text-muted-foreground">
+        Enter your existing bank account number (minimum 10 characters).
+      </p>
+    </div>
+    <div className="space-y-2">
+      <Label htmlFor="secret">Account Secret</Label>
+      <Input
+        id="secret"
+        type="password"
+        value={secret}
+        onChange={(e) => setSecret(e.target.value)}
+        placeholder="Enter your bank account secret"
+        minLength={6}
+        required
+      />
+    </div>
+    <div className="space-y-2">
+      <Label htmlFor="confirmSecret">Confirm Secret</Label>
+      <Input
+        id="confirmSecret"
+        type="password"
+        value={confirmSecret}
+        onChange={(e) => setConfirmSecret(e.target.value)}
+        placeholder="Confirm your bank account secret"
+        minLength={6}
+        required
+      />
+    </div>
+    <Button type="submit" className="w-full" disabled={loading}>
+      {loading ? (
+        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+      ) : (
+        <ArrowRight className="h-4 w-4 mr-2" />
+      )}
+      {buttonText}
+    </Button>
+  </form>
+);
+
+export default BankSetup;

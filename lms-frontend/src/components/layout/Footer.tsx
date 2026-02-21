@@ -1,23 +1,25 @@
-import { GraduationCap } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { GraduationCap } from 'lucide-react';
 
-export function Footer() {
+const Footer = () => {
   return (
     <footer className="border-t bg-muted/30">
-      <div className="container py-12">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-          <div className="space-y-4">
-            <Link to="/" className="flex items-center gap-2">
-              <GraduationCap className="h-6 w-6 text-primary" />
-              <span className="text-lg font-bold">LearnHub</span>
+      <div className="container mx-auto px-4 py-12">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+          {/* Brand */}
+          <div className="space-y-3">
+            <Link to="/" className="flex items-center gap-2 font-bold text-lg">
+              <GraduationCap className="h-5 w-5 text-primary" />
+              LearnHub
             </Link>
             <p className="text-sm text-muted-foreground">
-              Empowering learners worldwide with quality education from expert instructors.
+              A modern learning management system connecting learners with expert instructors.
             </p>
           </div>
 
-          <div>
-            <h4 className="font-semibold mb-4">Platform</h4>
+          {/* Platform */}
+          <div className="space-y-3">
+            <h4 className="font-semibold text-sm">Platform</h4>
             <ul className="space-y-2 text-sm text-muted-foreground">
               <li><Link to="/courses" className="hover:text-foreground transition-colors">Browse Courses</Link></li>
               <li><Link to="/register" className="hover:text-foreground transition-colors">Become an Instructor</Link></li>
@@ -25,29 +27,33 @@ export function Footer() {
             </ul>
           </div>
 
-          <div>
-            <h4 className="font-semibold mb-4">Support</h4>
+          {/* Support */}
+          <div className="space-y-3">
+            <h4 className="font-semibold text-sm">Support</h4>
             <ul className="space-y-2 text-sm text-muted-foreground">
-              <li><a href="#" className="hover:text-foreground transition-colors">Help Center</a></li>
-              <li><a href="#" className="hover:text-foreground transition-colors">Contact Us</a></li>
-              <li><a href="#" className="hover:text-foreground transition-colors">FAQ</a></li>
+              <li><span className="cursor-default">Help Center</span></li>
+              <li><span className="cursor-default">Contact Us</span></li>
+              <li><span className="cursor-default">FAQ</span></li>
             </ul>
           </div>
 
-          <div>
-            <h4 className="font-semibold mb-4">Legal</h4>
+          {/* Legal */}
+          <div className="space-y-3">
+            <h4 className="font-semibold text-sm">Legal</h4>
             <ul className="space-y-2 text-sm text-muted-foreground">
-              <li><a href="#" className="hover:text-foreground transition-colors">Privacy Policy</a></li>
-              <li><a href="#" className="hover:text-foreground transition-colors">Terms of Service</a></li>
-              <li><a href="#" className="hover:text-foreground transition-colors">Cookie Policy</a></li>
+              <li><span className="cursor-default">Terms of Service</span></li>
+              <li><span className="cursor-default">Privacy Policy</span></li>
+              <li><span className="cursor-default">Cookie Policy</span></li>
             </ul>
           </div>
         </div>
 
-        <div className="mt-8 pt-8 border-t text-center text-sm text-muted-foreground">
-          © {new Date().getFullYear()} LearnHub LMS. All rights reserved.
+        <div className="mt-8 pt-6 border-t text-center text-sm text-muted-foreground">
+          © {new Date().getFullYear()} LearnHub. All rights reserved.
         </div>
       </div>
     </footer>
   );
-}
+};
+
+export default Footer;

@@ -1,113 +1,120 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Navbar } from '@/components/layout/Navbar';
-import { Footer } from '@/components/layout/Footer';
+import { useAuth } from '@/contexts/AuthContext';
+import Navbar from '@/components/layout/Navbar';
+import Footer from '@/components/layout/Footer';
+import EnrollConfirmDialog from '@/components/courses/EnrollConfirmDialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { useAuth } from '@/contexts/AuthContext';
-import { coursesAPI } from '@/lib/api';
-import type { Course, CourseMaterial } from '@/lib/api';
-import { useToast } from '@/hooks/use-toast';
-import { 
-  Clock, User, BookOpen, PlayCircle, FileText, 
-  Headphones, HelpCircle, CheckCircle, Lock, ShoppingCart, ArrowLeft 
+import { Skeleton } from '@/components/ui/skeleton';
+import { toast } from 'sonner';
+import { coursesAPI, bankAPI, Course, CourseMaterial } from '@/lib/api';
+import {
+  ArrowLeft, Clock, User, DollarSign, BookOpen, Video, FileText, Music, HelpCircle,
+  CheckCircle2, Lock, Loader2, AlertTriangle, Award,
 } from 'lucide-react';
 
-export default function CourseDetail() {
+const materialTypeIcons: Record<string, React.ElementType> = {
+  video: Video,
+  text: FileText,
+  audio: Music,
+  mcq: HelpCircle,
+};
+
+const CourseDetail = () => {
   const { id } = useParams<{ id: string }>();
-  const { user, isAuthenticated } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
-  const { toast } = useToast();
-  const [isEnrolling, setIsEnrolling] = useState(false);
+
   const [course, setCourse] = useState<Course | null>(null);
   const [materials, setMaterials] = useState<CourseMaterial[]>([]);
   const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [enrolling, setEnrolling] = useState(false);
+  const [completing, setCompleting] = useState(false);
+  const [balance, setBalance] = useState<number | null>(null);
+  const [showEnrollDialog, setShowEnrollDialog] = useState(false);
 
   useEffect(() => {
-    if (!id) return;
-    setLoading(true);
-    Promise.all([
-      coursesAPI.getById(id).catch(() => null),
-      coursesAPI.getMaterials(id).catch(() => [] as CourseMaterial[]),
-    ]).then(([courseData, materialsData]) => {
-      setCourse(courseData);
-      setMaterials(materialsData);
-    }).finally(() => setLoading(false));
+    const fetchData = async () => {
+      if (!id) return;
+      try {
+        const [courseData, materialsData] = await Promise.all([
+          coursesAPI.getById(id),
+          coursesAPI.getMaterials(id),
+        ]);
+        setCourse(courseData);
+        setMaterials(materialsData);
+      } catch {
+        setNotFound(true);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
   }, [id]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex flex-col">
-        <Navbar />
-        <main className="flex-1 container py-12 text-center">
-          <p className="text-muted-foreground">Loading course...</p>
-        </main>
-        <Footer />
-      </div>
-    );
-  }
-
-  if (!course) {
-    return (
-      <div className="min-h-screen flex flex-col">
-        <Navbar />
-        <main className="flex-1 container py-12 text-center">
-          <h1 className="text-2xl font-bold mb-4">Course not found</h1>
-          <Button asChild>
-            <Link to="/courses">Back to Courses</Link>
-          </Button>
-        </main>
-        <Footer />
-      </div>
-    );
-  }
-
-  const isEnrolled = course.enrolled;
-  const progress = course.progress || 0;
-
-  const handleEnroll = async () => {
-    if (!isAuthenticated) {
+  // Fetch balance when user clicks enroll (for confirmation dialog)
+  const handleEnrollClick = async () => {
+    if (!user) {
       navigate('/login');
       return;
     }
-
-    if (!user?.hasBankSetup) {
-      toast({
-        title: 'Bank Setup Required',
-        description: 'Please set up your bank information before enrolling.',
-      });
+    if (!user.hasBankSetup) {
+      toast.error('Please set up your bank account first.');
       navigate('/bank');
       return;
     }
-
-    setIsEnrolling(true);
+    // Fetch balance for confirmation dialog
     try {
-      await coursesAPI.enroll(course.id);
-      toast({
-        title: 'Enrollment Successful!',
-        description: `You are now enrolled in ${course.title}`,
-      });
-      // Refresh course data to update enrollment state
-      const updated = await coursesAPI.getById(course.id);
-      setCourse(updated);
-    } catch (error: any) {
-      toast({
-        title: 'Enrollment Failed',
-        description: error.message || 'Something went wrong',
-        variant: 'destructive',
-      });
+      const bankData = await bankAPI.getBalance();
+      setBalance(bankData.balance);
+    } catch {
+      setBalance(null);
+    }
+    setShowEnrollDialog(true);
+  };
+
+  const handleEnrollConfirm = async () => {
+    if (!id) return;
+    setEnrolling(true);
+    try {
+      const result = await coursesAPI.enroll(id);
+      toast.success(result.message);
+      // Refresh course data to get updated enrollment status
+      const updatedCourse = await coursesAPI.getById(id);
+      setCourse(updatedCourse);
+      setShowEnrollDialog(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Enrollment failed');
     } finally {
-      setIsEnrolling(false);
+      setEnrolling(false);
     }
   };
 
-  const materialIcon = {
-    video: PlayCircle,
-    text: FileText,
-    audio: Headphones,
-    mcq: HelpCircle,
+  const handleComplete = async () => {
+    if (!id) return;
+    setCompleting(true);
+    try {
+      const result = await coursesAPI.completeCourse(id);
+      toast.success(result.message);
+      // Show certificate info
+      if (result.certificate) {
+        toast.success(`Certificate issued for "${result.certificate.courseName}"`, {
+          description: `Issued to ${result.certificate.userName} on ${new Date(result.certificate.issuedAt).toLocaleDateString()}`,
+          duration: 8000,
+        });
+      }
+      // Refresh course data
+      const updatedCourse = await coursesAPI.getById(id);
+      setCourse(updatedCourse);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to complete course');
+    } finally {
+      setCompleting(false);
+    }
   };
 
   const levelColors = {
@@ -116,144 +123,247 @@ export default function CourseDetail() {
     advanced: 'bg-red-100 text-red-800',
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <Navbar />
+        <div className="flex-1 container mx-auto px-4 py-8">
+          <Skeleton className="h-8 w-32 mb-6" />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-2 space-y-4">
+              <Skeleton className="h-64 w-full rounded-lg" />
+              <Skeleton className="h-8 w-3/4" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-full" />
+            </div>
+            <div className="space-y-4">
+              <Skeleton className="h-48 w-full rounded-lg" />
+            </div>
+          </div>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
+
+  if (notFound || !course) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <Navbar />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center space-y-4">
+            <h2 className="text-2xl font-bold">Course Not Found</h2>
+            <p className="text-muted-foreground">The course you're looking for doesn't exist.</p>
+            <Button asChild>
+              <Link to="/courses">Browse Courses</Link>
+            </Button>
+          </div>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
-      
-      <main className="flex-1">
-        {/* Course Header */}
-        <section className="py-8 bg-muted/30">
-          <div className="container">
-            <Button variant="ghost" size="sm" asChild className="mb-4">
-              <Link to="/courses">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Courses
-              </Link>
-            </Button>
-            
-            <div className="grid md:grid-cols-3 gap-8">
-              <div className="md:col-span-2 space-y-4">
-                <Badge className={levelColors[course.level]}>{course.level}</Badge>
-                <h1 className="text-3xl md:text-4xl font-bold">{course.title}</h1>
-                <p className="text-lg text-muted-foreground">{course.description}</p>
-                
-                <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-                  <span className="flex items-center gap-1">
-                    <User className="h-4 w-4" />
-                    {course.instructorName}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Clock className="h-4 w-4" />
-                    {course.duration}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <BookOpen className="h-4 w-4" />
-                    {materials.length} lessons
-                  </span>
-                </div>
+      <div className="flex-1 container mx-auto px-4 py-8">
+        <Button variant="ghost" size="sm" className="mb-6" asChild>
+          <Link to="/courses">
+            <ArrowLeft className="h-4 w-4 mr-1" />
+            Back to Courses
+          </Link>
+        </Button>
 
-                {isEnrolled && (
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span>Your Progress</span>
-                      <span>{progress}%</span>
-                    </div>
-                    <Progress value={progress} />
-                  </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Main Content */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Thumbnail */}
+            <div className="aspect-video rounded-lg overflow-hidden bg-muted">
+              {course.thumbnail ? (
+                <img src={course.thumbnail} alt={course.title} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/20 to-primary/5">
+                  <BookOpen className="h-16 w-16 text-primary/30" />
+                </div>
+              )}
+            </div>
+
+            {/* Course Info */}
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="secondary" className={levelColors[course.level]}>
+                  {course.level}
+                </Badge>
+                {course.enrolled && (
+                  <Badge variant="secondary" className="bg-blue-100 text-blue-800">Enrolled</Badge>
+                )}
+                {course.completed && (
+                  <Badge variant="secondary" className="bg-emerald-100 text-emerald-800">
+                    <CheckCircle2 className="h-3 w-3 mr-1" /> Completed
+                  </Badge>
                 )}
               </div>
+              <h1 className="text-3xl font-bold">{course.title}</h1>
+              <p className="text-muted-foreground text-lg">{course.description}</p>
 
-              <div>
-                <Card>
-                  <div className="aspect-video overflow-hidden rounded-t-lg">
-                    <img
-                      src={course.thumbnail || '/placeholder.svg'}
-                      alt={course.title}
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <CardContent className="p-6 space-y-4">
-                    <div className="text-3xl font-bold text-primary">${course.price}</div>
-                    
-                    {isEnrolled ? (
-                      <Button className="w-full" size="lg">
-                        <PlayCircle className="h-5 w-5 mr-2" />
-                        Continue Learning
-                      </Button>
-                    ) : (
-                      <Button 
-                        className="w-full" 
-                        size="lg" 
-                        onClick={handleEnroll}
-                        disabled={isEnrolling}
-                      >
-                        <ShoppingCart className="h-5 w-5 mr-2" />
-                        {isEnrolling ? 'Processing...' : 'Enroll Now'}
-                      </Button>
-                    )}
-                  </CardContent>
-                </Card>
+              <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+                <span className="flex items-center gap-1"><User className="h-4 w-4" />{course.instructorName}</span>
+                <span className="flex items-center gap-1"><Clock className="h-4 w-4" />{course.duration}</span>
+                <span className="flex items-center gap-1"><DollarSign className="h-4 w-4" />{course.price.toFixed(2)}</span>
               </div>
-            </div>
-          </div>
-        </section>
 
-        {/* Course Content */}
-        <section className="py-12">
-          <div className="container">
-            <Card>
-              <CardHeader>
-                <CardTitle>Course Content</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2">
-                  {materials.map((material, index) => {
-                    const Icon = materialIcon[material.type];
-                    const isCompleted = material.completed;
-                    const isLocked = !isEnrolled && index > 0;
+              {/* Progress */}
+              {course.enrolled && !course.completed && course.progress !== undefined && (
+                <div className="space-y-1">
+                  <div className="flex justify-between text-sm">
+                    <span>Progress</span>
+                    <span>{course.progress}%</span>
+                  </div>
+                  <Progress value={course.progress} className="h-2" />
+                </div>
+              )}
+            </div>
+
+            {/* Materials */}
+            <div className="space-y-4">
+              <h2 className="text-xl font-semibold">Course Materials</h2>
+              {materials.length === 0 ? (
+                <p className="text-muted-foreground text-sm">No materials available yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {materials.map((material) => {
+                    const Icon = materialTypeIcons[material.type] || FileText;
+                    const isAccessible = course.enrolled;
 
                     return (
-                      <li
-                        key={material.id}
-                        className={`flex items-center gap-3 p-3 rounded-lg border ${
-                          isLocked ? 'opacity-50' : 'hover:bg-muted/50'
-                        } transition-colors`}
-                      >
-                        <div className={`p-2 rounded-full ${
-                          isCompleted 
-                            ? 'bg-green-100 text-green-600' 
-                            : 'bg-muted text-muted-foreground'
-                        }`}>
-                          {isCompleted ? (
-                            <CheckCircle className="h-4 w-4" />
-                          ) : isLocked ? (
-                            <Lock className="h-4 w-4" />
-                          ) : (
-                            <Icon className="h-4 w-4" />
+                      <Card key={material.id} className={!isAccessible ? 'opacity-60' : ''}>
+                        <CardContent className="flex items-center gap-3 p-4">
+                          <div className={`p-2 rounded-lg ${isAccessible ? 'bg-primary/10' : 'bg-muted'}`}>
+                            {isAccessible ? (
+                              <Icon className="h-4 w-4 text-primary" />
+                            ) : (
+                              <Lock className="h-4 w-4 text-muted-foreground" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm truncate">{material.title}</p>
+                            <p className="text-xs text-muted-foreground capitalize">{material.type}</p>
+                          </div>
+                          {isAccessible && material.content && (
+                            <Badge variant="outline" className="text-xs">
+                              {material.type === 'video' ? 'Watch' : material.type === 'audio' ? 'Listen' : 'Read'}
+                            </Badge>
                           )}
-                        </div>
-                        <div className="flex-1">
-                          <span className="font-medium">{material.title}</span>
-                          <span className="ml-2 text-xs text-muted-foreground capitalize">
-                            ({material.type})
-                          </span>
-                        </div>
-                        {isEnrolled && !isLocked && (
-                          <Button variant="ghost" size="sm">
-                            {isCompleted ? 'Review' : 'Start'}
-                          </Button>
-                        )}
-                      </li>
+                        </CardContent>
+                      </Card>
                     );
                   })}
-                </ul>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Sidebar */}
+          <div className="space-y-4">
+            <Card className="sticky top-24">
+              <CardContent className="p-6 space-y-4">
+                <div className="text-3xl font-bold text-primary flex items-center">
+                  <DollarSign className="h-7 w-7" />
+                  {course.price.toFixed(2)}
+                </div>
+
+                {/* Action Buttons based on state */}
+                {!course.enrolled && (
+                  <>
+                    {/* Bank setup gate (G16) */}
+                    {user && !user.hasBankSetup && (
+                      <div className="flex items-start gap-2 text-sm text-amber-600 bg-amber-50 p-3 rounded-lg">
+                        <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="font-medium">Bank account required</p>
+                          <Link to="/bank" className="text-xs underline">Set up your bank account</Link>
+                        </div>
+                      </div>
+                    )}
+                    <Button className="w-full" size="lg" onClick={handleEnrollClick}>
+                      Enroll Now
+                    </Button>
+                  </>
+                )}
+
+                {course.enrolled && !course.completed && (
+                  <div className="space-y-3">
+                    {/* isPaid state awareness (G5) */}
+                    <div className="flex items-start gap-2 text-sm text-blue-600 bg-blue-50 p-3 rounded-lg">
+                      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="font-medium">Enrolled</p>
+                        <p className="text-xs">
+                          Your payment is being processed. Once the instructor validates the transaction, you can complete this course.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Complete Course button (G1) */}
+                    <Button
+                      className="w-full"
+                      size="lg"
+                      onClick={handleComplete}
+                      disabled={completing}
+                    >
+                      {completing ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4 mr-2" />
+                      )}
+                      Complete Course
+                    </Button>
+                  </div>
+                )}
+
+                {course.completed && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 p-3 rounded-lg">
+                      <Award className="h-5 w-5" />
+                      <div>
+                        <p className="font-medium text-sm">Course Completed!</p>
+                        <p className="text-xs">Certificate has been issued.</p>
+                      </div>
+                    </div>
+                    <Button variant="outline" className="w-full" asChild>
+                      <Link to="/dashboard">View Certificate</Link>
+                    </Button>
+                  </div>
+                )}
+
+                {!user && (
+                  <p className="text-xs text-muted-foreground text-center">
+                    <Link to="/login" className="text-primary hover:underline">Sign in</Link> to enroll
+                  </p>
+                )}
               </CardContent>
             </Card>
           </div>
-        </section>
-      </main>
+        </div>
+      </div>
+
+      {/* Enrollment confirmation dialog (G11) */}
+      {course && (
+        <EnrollConfirmDialog
+          open={showEnrollDialog}
+          onOpenChange={setShowEnrollDialog}
+          courseName={course.title}
+          coursePrice={course.price}
+          balance={balance}
+          onConfirm={handleEnrollConfirm}
+          loading={enrolling}
+        />
+      )}
 
       <Footer />
     </div>
   );
-}
+};
+
+export default CourseDetail;

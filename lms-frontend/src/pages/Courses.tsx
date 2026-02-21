@@ -1,111 +1,105 @@
 import { useState, useEffect } from 'react';
-import { Navbar } from '@/components/layout/Navbar';
-import { Footer } from '@/components/layout/Footer';
-import { CourseCard } from '@/components/courses/CourseCard';
+import Navbar from '@/components/layout/Navbar';
+import Footer from '@/components/layout/Footer';
+import CourseCard from '@/components/courses/CourseCard';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { coursesAPI } from '@/lib/api';
-import type { Course } from '@/lib/api';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import { coursesAPI, Course } from '@/lib/api';
 import { Search } from 'lucide-react';
 
-export default function Courses() {
-  const [search, setSearch] = useState('');
-  const [levelFilter, setLevelFilter] = useState<string | null>(null);
+const Courses = () => {
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [levelFilter, setLevelFilter] = useState<string>('all');
 
   useEffect(() => {
-    coursesAPI.getAll()
-      .then(data => setCourses(data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    const fetchCourses = async () => {
+      try {
+        const data = await coursesAPI.getAll();
+        setCourses(data);
+      } catch {
+        // handle error silently
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchCourses();
   }, []);
 
-  const filteredCourses = courses.filter((course) => {
-    const matchesSearch = course.title.toLowerCase().includes(search.toLowerCase()) ||
+  const filtered = courses.filter((course) => {
+    const matchesSearch = !search ||
+      course.title.toLowerCase().includes(search.toLowerCase()) ||
       course.description.toLowerCase().includes(search.toLowerCase());
-    const matchesLevel = !levelFilter || course.level === levelFilter;
+    const matchesLevel = levelFilter === 'all' || course.level === levelFilter;
     return matchesSearch && matchesLevel;
   });
-
-  const levels = ['beginner', 'intermediate', 'advanced'];
 
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
-      
-      <main className="flex-1">
-        {/* Header */}
-        <section className="py-12 bg-muted/30">
-          <div className="container">
-            <h1 className="text-3xl md:text-4xl font-bold mb-4">Explore Courses</h1>
-            <p className="text-muted-foreground mb-6">
-              Discover courses designed to help you achieve your learning goals
-            </p>
-            
-            {/* Search and Filters */}
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search courses..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant={levelFilter === null ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setLevelFilter(null)}
-                >
-                  All
-                </Button>
-                {levels.map((level) => (
-                  <Button
-                    key={level}
-                    variant={levelFilter === level ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setLevelFilter(level)}
-                    className="capitalize"
-                  >
-                    {level}
-                  </Button>
-                ))}
-              </div>
-            </div>
+      <div className="flex-1 container mx-auto px-4 py-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold mb-2">All Courses</h1>
+          <p className="text-muted-foreground">
+            {loading ? 'Loading...' : `${filtered.length} course${filtered.length !== 1 ? 's' : ''} available`}
+          </p>
+        </div>
+
+        {/* Filters */}
+        <div className="flex flex-col sm:flex-row gap-3 mb-6">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search courses..."
+              className="pl-9"
+            />
           </div>
-        </section>
+          <Select value={levelFilter} onValueChange={setLevelFilter}>
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue placeholder="All Levels" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Levels</SelectItem>
+              <SelectItem value="beginner">Beginner</SelectItem>
+              <SelectItem value="intermediate">Intermediate</SelectItem>
+              <SelectItem value="advanced">Advanced</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
         {/* Course Grid */}
-        <section className="py-12">
-          <div className="container">
-            {filteredCourses.length > 0 ? (
-              <>
-                <p className="text-sm text-muted-foreground mb-6">
-                  Showing {filteredCourses.length} course{filteredCourses.length !== 1 ? 's' : ''}
-                </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {filteredCourses.map((course) => (
-                    <CourseCard key={course.id} course={course} />
-                  ))}
-                </div>
-              </>
-            ) : (
-              <div className="text-center py-12">
-                <p className="text-muted-foreground">No courses found matching your criteria.</p>
-                <Button variant="link" onClick={() => { setSearch(''); setLevelFilter(null); }}>
-                  Clear filters
-                </Button>
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="space-y-3">
+                <Skeleton className="h-48 w-full rounded-lg" />
+                <Skeleton className="h-6 w-3/4" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-1/2" />
               </div>
-            )}
+            ))}
           </div>
-        </section>
-      </main>
-
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-16">
+            <p className="text-lg text-muted-foreground">
+              {search || levelFilter !== 'all' ? 'No courses match your filters.' : 'No courses available yet.'}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filtered.map((course) => (
+              <CourseCard key={course.id} course={course} />
+            ))}
+          </div>
+        )}
+      </div>
       <Footer />
     </div>
   );
-}
+};
+
+export default Courses;
