@@ -274,7 +274,7 @@ const CourseDetail = () => {
                 </div>
 
                 {/* Action Buttons based on state */}
-                {!course.enrolled && (
+                {!course.enrolled && user?.role !== 'instructor' && (
                   <>
                     {/* Bank setup gate (G16) */}
                     {user && !user.hasBankSetup && (
